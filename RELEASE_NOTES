@@ -1,5 +1,9 @@
 # file: RELEASE_NOTES
 
+R7.1-0.1.0  M. Dunning 12-Feb-2024
+    Build with base R3.15.5-1.1
+    Bump modules and use LCLS modules where possible
+
 R7.1-0.0.2  M. Dunning 13-Sep-2107
     Upgrade busy module
 
