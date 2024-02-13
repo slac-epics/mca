@@ -1,7 +1,8 @@
-/bin/
-/lib/
-/include/
-/db/
-/dbd/
-O.*
-RELEASE_SITE
+bin
+db
+dbd
+include
+lib
+CVS
+build*.log
+RELEASE_SITE*
