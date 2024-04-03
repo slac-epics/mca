@@ -1,5 +1,9 @@
 # file: RELEASE_NOTES
 
+R8.0.0  M. Dunning 3-Apr-2024
+    Build with base 7.0.3.1-1.0
+    Bump modules and use LCLS modules where possible
+
 R7.1-0.1.0  M. Dunning 12-Feb-2024
     Build with base R3.15.5-1.1
     Bump modules and use LCLS modules where possible
