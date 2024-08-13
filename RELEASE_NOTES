@@ -1,5 +1,9 @@
 # file: RELEASE_NOTES
 
+R8.0.1  S. Condamoor 13-Aug-2024
+	Shorten the miscUtils tag name by replacing *-base7.0 with *-v7. 
+	The long string was causing db error for *:RELEASE*.VAL
+
 R8.0.0  M. Dunning 3-Apr-2024
     Build with base 7.0.3.1-1.0
     Bump modules and use LCLS modules where possible
