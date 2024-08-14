@@ -1,5 +1,8 @@
 # file: RELEASE_NOTES
 
+R8.0.1  S. Condamoor 14-Aug-2024
+    Build with miscUtils version R1.0.0
+
 R8.0.0  M. Dunning 3-Apr-2024
     Build with base 7.0.3.1-1.0
     Bump modules and use LCLS modules where possible
