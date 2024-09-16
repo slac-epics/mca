@@ -8,7 +8,7 @@ include $(TOP)/configure/CONFIG
 
 # <name>.dbd will be created from <name>Include.dbd
 DBD += SIS38XXSupport.dbd
-DBD += SIS38XXTest.dbd
+#DBD += SIS38XXTest.dbd
 
 #=============================
 # Build the library for ARCHs with VME capability.
@@ -25,14 +25,15 @@ SIS38XX_SRCS += SIS38XX_SNL.st
 SIS38XX_LIBS += mca
 SIS38XX_LIBS += std
 SIS38XX_LIBS += busy
-SIS38XX_LIBS += calc autosave
+SIS38XX_LIBS += calc
+#SIS38XX_LIBS += autosave
 SIS38XX_LIBS += asyn
 SIS38XX_LIBS += seq pv
 SIS38XX_LIBS += $(EPICS_BASE_IOC_LIBS)
 
 #==================================
-PROD_IOC_vxWorks += SIS38XXTest
-PROD_IOC_RTEMS += SIS38XXTest
+#PROD_IOC_vxWorks += SIS38XXTest
+#PROD_IOC_RTEMS += SIS38XXTest
 # If your version of Linux has support for VME devLib uncomment following line
 #PROD_IOC_Linux += SIS38XXTest
 

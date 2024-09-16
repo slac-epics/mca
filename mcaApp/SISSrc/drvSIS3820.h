@@ -26,7 +26,13 @@
 #include "drvSIS38XX.h"
 
 // My temporary file
-#include <vmeDMA.h>
+#ifdef __cplusplus
+extern "C" {
+#endif
+#include <epicsDma.h>
+#ifdef __cplusplus
+}
+#endif
 
 /***************/
 /* Definitions */
@@ -173,7 +179,6 @@ class drvSIS3820 : public drvSIS38XX
   // Public methods new to this class
   void intFunc();        // Should be private, but called from C callback function
   void readFIFOThread(); // Should be private, but called from C callback function
-  virtual void dmaCallback();    // Should be private, but called from C callback function
 
 
   protected:
@@ -206,8 +211,7 @@ class drvSIS3820 : public drvSIS38XX
   void setIrqControlStatusReg();
   SIS3820_REGS *registers_;
   bool useDma_;
-  DMA_ID dmaId_;
-  epicsEventId dmaDoneEventId_;
+  epicsDmaId dmaId_;
 };
 
 /***********************/

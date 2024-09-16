@@ -31,7 +31,7 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  *
- * @(#) $Header: /tcpdump/master/libpcap/pcap/pcap.h,v 1.4.2.11 2008-10-06 15:38:39 gianluca Exp $ (LBL)
+ * @(#) $Header: /afs/slac/g/spear/cvsrep/epics/modules/mca/mca/mcaApp/CanberraSupport/os/WIN32/pcap.h,v 1.1.1.1 2009/12/02 04:01:46 saa Exp $ (LBL)
  */
 
 #ifndef lib_pcap_pcap_h

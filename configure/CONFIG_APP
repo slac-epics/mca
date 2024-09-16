@@ -23,3 +23,6 @@ endif
 
 # dbst based database optimization (default: NO)
 DB_OPT = NO
+# uncomment for architectures where the
+# portable endian conversion header is available
+USR_CFLAGS += -DHAS_IOOPS_H

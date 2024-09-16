@@ -18,7 +18,7 @@
  * WARRANTIES, INCLUDING, WITHOUT LIMITATION, THE IMPLIED WARRANTIES OF
  * MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE.
  *
- * @(#) $Header: /tcpdump/master/libpcap/Win32/Include/ip6_misc.h,v 1.5 2006-01-22 18:02:18 gianluca Exp $ (LBL)
+ * @(#) $Header: /afs/slac/g/spear/cvsrep/epics/modules/mca/mca/mcaApp/CanberraSupport/os/WIN32/ip6_misc.h,v 1.1.1.1 2009/12/02 04:01:46 saa Exp $ (LBL)
  */
 
 /*

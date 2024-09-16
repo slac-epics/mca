@@ -808,7 +808,7 @@ read_data:
         /* Use TimeStamp to record end of acquisition */
         recGblGetTimeStamp(pmca);
 
-        // mdunning 8/7/17: tsStampToText is deprecated; use epicsTimeToStrftime
+        // tsStampToText is deprecated; use epicsTimeToStrftime
         /*tsStampToText(&pmca->time, TS_TEXT_MONDDYYYY,
                        pmca->stim);*/
         epicsTimeToStrftime(pmca->stim, 25, "%b %d, %Y %H:%M:%S.%03f", &pmca->time);

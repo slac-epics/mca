@@ -29,6 +29,13 @@
 #include <stddef.h>
 #include <string.h>
 #include <stdio.h>
+#include <errno.h>
+#include <malloc.h>
+#ifdef __rtems__
+#include <rtems/malloc.h>
+#define memalign(alignment,size) \
+  rtems_memalign((void **)&fifoBuffer_, (alignment), (size)) ? NULL : fifoBuffer_
+#endif
 
 /******************/
 /* EPICS includes */
@@ -48,9 +55,6 @@
 /* Custom includes */
 /*******************/
 
-// My temporary file
-#include <vmeDMA.h>
-
 #include "drvMca.h"
 #include "devScalerAsyn.h"
 #include "drvSIS3820.h"
@@ -59,8 +63,42 @@
 static const char *driverName="drvSIS3820";
 static void intFuncC(void *drvPvt);
 static void readFIFOThreadC(void *drvPvt);
-static void dmaCallbackC(void *drvPvt);
 
+/* epicsDma taken from GTR */
+#ifdef __cplusplus
+extern "C" {
+#endif
+#include <epicsDma.h>
+#ifdef HAS_IOOPS_H
+#include <basicIoOps.h>
+#endif
+
+static void writeRegister(volatile void *a32, epicsUInt32 value)
+{
+#ifdef HAS_IOOPS_H
+    out_be32((volatile void*)a32, value);
+#else
+    epicsUInt32 *reg;
+    reg = (epicsUInt32 *)a32;
+    *reg = value;
+#endif
+}
+
+static epicsUInt32 readRegister(volatile void *a32)
+{
+    epicsUInt32 value;
+#ifdef HAS_IOOPS_H
+    value = in_be32((volatile void*)a32);
+#else
+    epicsUInt32 *reg;
+    reg = (epicsUInt32 *)a32;
+    value = *reg;
+#endif
+    return(value);
+}
+#ifdef __cplusplus
+}
+#endif
 /***************/
 /* Definitions */
 /***************/
@@ -129,11 +167,11 @@ drvSIS3820::drvSIS3820(const char *portName, int baseAddress, int interruptVecto
   }
 
   /* Get the module info from the card */
-  moduleID = (registers_->moduleID_reg & 0xFFFF0000) >> 16;
+  moduleID = (readRegister(&registers_->moduleID_reg) & 0xFFFF0000) >> 16;
   asynPrint(pasynUserSelf, ASYN_TRACE_FLOW, 
             "%s:%s: module ID=%x\n", 
             driverName, functionName, moduleID);
-  firmwareVersion_ = registers_->moduleID_reg & 0x0000FFFF;
+  firmwareVersion_ = readRegister(&registers_->moduleID_reg) & 0x0000FFFF;
   setIntegerParam(SIS38XXFirmware_, firmwareVersion_);
   asynPrint(pasynUserSelf, ASYN_TRACE_FLOW, 
             "%s:%s: firmware=%d\n",
@@ -152,13 +190,12 @@ drvSIS3820::drvSIS3820(const char *portName, int baseAddress, int interruptVecto
     return;
   }
   
-  dmaDoneEventId_ = epicsEventCreate(epicsEventEmpty);
   // Create the DMA ID
   if (useDma_) {
-    dmaId_ = sysDmaCreate(dmaCallbackC, (void*)this);
-    if (dmaId_ == 0 || (int)dmaId_ == -1) {
+    dmaId_ = epicsDmaCreate(NULL, (void*)this);
+    if (dmaId_ == NULL ) {
       asynPrint(pasynUserSelf, ASYN_TRACE_ERROR,
-                "%s:%s: sysDmaCreate failed. Disabling use of DMA.\n",
+                "%s:%s: epicsDmaCreate failed. Disabling use of DMA.\n",
                 driverName, functionName);
       useDma_ = false;
     }
@@ -168,7 +205,7 @@ drvSIS3820::drvSIS3820(const char *portName, int baseAddress, int interruptVecto
   asynPrint(pasynUserSelf, ASYN_TRACE_FLOW, 
             "%s:%s: resetting port %s\n", 
             driverName, functionName, portName);
-  registers_->key_reset_reg = 1;
+  writeRegister(&registers_->key_reset_reg,1);
 
   /* Clear FIFO */
   asynPrint(pasynUserSelf, ASYN_TRACE_FLOW, 
@@ -177,8 +214,8 @@ drvSIS3820::drvSIS3820(const char *portName, int baseAddress, int interruptVecto
   resetFIFO();
   
   // Disable 25MHz test pulses and test mode
-  registers_->control_status_reg = CTRL_COUNTER_TEST_25MHZ_DISABLE;
-  registers_->control_status_reg = CTRL_COUNTER_TEST_MODE_DISABLE;
+  writeRegister(&registers_->control_status_reg,CTRL_COUNTER_TEST_25MHZ_DISABLE);
+  writeRegister(&registers_->control_status_reg,CTRL_COUNTER_TEST_MODE_DISABLE);
 
   /* Set up the interrupt service routine */
   asynPrint(pasynUserSelf, ASYN_TRACE_FLOW, 
@@ -197,18 +234,18 @@ drvSIS3820::drvSIS3820(const char *portName, int baseAddress, int interruptVecto
             driverName, functionName, interruptVector);
   
   /* Write interrupt level to hardware */
-  registers_->irq_config_reg &= ~SIS3820_IRQ_LEVEL_MASK;
-  registers_->irq_config_reg |= (interruptLevel << 8);
+  writeRegister(&registers_->irq_config_reg, readRegister(&registers_->irq_config_reg) & ~SIS3820_IRQ_LEVEL_MASK);
+  writeRegister(&registers_->irq_config_reg, readRegister(&registers_->irq_config_reg) | (interruptLevel << 8));
   asynPrint(pasynUserSelf, ASYN_TRACE_FLOW, 
             "%s:%s: irq after setting IntLevel= 0x%x\n", 
-             driverName, functionName, registers_->irq_config_reg);
+	    driverName, functionName, readRegister(&registers_->irq_config_reg));
 
   /* Write interrupt vector to hardware */
-  registers_->irq_config_reg &= ~SIS3820_IRQ_VECTOR_MASK;
-  registers_->irq_config_reg |= interruptVector;
+  writeRegister(&registers_->irq_config_reg, readRegister(&registers_->irq_config_reg) & ~SIS3820_IRQ_VECTOR_MASK);
+  writeRegister(&registers_->irq_config_reg, readRegister(&registers_->irq_config_reg) | interruptVector);
   asynPrint(pasynUserSelf, ASYN_TRACE_FLOW, 
             "%s:%s: irq = 0x%08x\n", 
-            driverName, functionName, registers_->irq_config_reg);
+            driverName, functionName, readRegister(&registers_->irq_config_reg));
             
   /* Initialize board in MCS mode. This will also set the initial value of the operation mode register. */
   setAcquireMode(ACQUIRE_MODE_MCS);
@@ -234,9 +271,9 @@ drvSIS3820::drvSIS3820(const char *portName, int baseAddress, int interruptVecto
   /* Enable interrupts in hardware */  
   asynPrint(pasynUserSelf, ASYN_TRACE_FLOW, 
             "%s:%s: irq before enabling interrupts= 0x%08x\n", 
-            driverName, functionName, registers_->irq_config_reg);
+            driverName, functionName, readRegister(&registers_->irq_config_reg));
 
-  registers_->irq_config_reg |= SIS3820_IRQ_ENABLE;
+  writeRegister(&registers_->irq_config_reg, readRegister(&registers_->irq_config_reg) | SIS3820_IRQ_ENABLE);
 
   /* Enable interrupt level in EPICS */
   status = devEnableInterruptLevel(intVME, interruptLevel);
@@ -262,39 +299,39 @@ void drvSIS3820::report(FILE *fp, int details)
   if (details > 0) {
     int i;
     fprintf(fp, "  Registers:\n");
-    fprintf(fp, "    control_status_reg         = 0x%x\n",   registers_->control_status_reg);
-    fprintf(fp, "    moduleID_reg               = 0x%x\n",   registers_->moduleID_reg);
-    fprintf(fp, "    irq_config_reg             = 0x%x\n",   registers_->irq_config_reg);
-    fprintf(fp, "    irq_control_status_reg     = 0x%x\n",   registers_->irq_control_status_reg);
-    fprintf(fp, "    acq_preset_reg             = 0x%x\n",   registers_->acq_preset_reg);
-    fprintf(fp, "    acq_count_reg              = 0x%x\n",   registers_->acq_count_reg);
-    fprintf(fp, "    lne_prescale_factor_reg    = 0x%x\n",   registers_->lne_prescale_factor_reg);
-    fprintf(fp, "    preset_group1_reg          = 0x%x\n",   registers_->preset_group1_reg);
-    fprintf(fp, "    preset_group2_reg          = 0x%x\n",   registers_->preset_group2_reg);
-    fprintf(fp, "    preset_enable_reg          = 0x%x\n",   registers_->preset_enable_reg);
-    fprintf(fp, "    cblt_setup_reg             = 0x%x\n",   registers_->cblt_setup_reg);
-    fprintf(fp, "    sdram_page_reg             = 0x%x\n",   registers_->sdram_page_reg);
-    fprintf(fp, "    fifo_word_count_reg        = 0x%x\n",   registers_->fifo_word_count_reg);
-    fprintf(fp, "    fifo_word_threshold_reg    = 0x%x\n",   registers_->fifo_word_threshold_reg);
-    fprintf(fp, "    hiscal_start_preset_reg    = 0x%x\n",   registers_->hiscal_start_preset_reg);
-    fprintf(fp, "    hiscal_start_counter_reg   = 0x%x\n",   registers_->hiscal_start_counter_reg);
-    fprintf(fp, "    hiscal_last_acq_count_reg  = 0x%x\n",   registers_->hiscal_last_acq_count_reg);
-    fprintf(fp, "    op_mode_reg                = 0x%x\n",   registers_->op_mode_reg);
-    fprintf(fp, "    copy_disable_reg           = 0x%x\n",   registers_->copy_disable_reg);
-    fprintf(fp, "    lne_channel_select_reg     = 0x%x\n",   registers_->lne_channel_select_reg);
-    fprintf(fp, "    preset_channel_select_reg  = 0x%x\n",   registers_->preset_channel_select_reg);
-    fprintf(fp, "    mux_out_channel_select_reg = 0x%x\n",   registers_->mux_out_channel_select_reg);
-    fprintf(fp, "    count_disable_reg          = 0x%x\n",   registers_->count_disable_reg);
-    fprintf(fp, "    count_clear_reg            = 0x%x\n",   registers_->count_clear_reg);
-    fprintf(fp, "    counter_overflow_reg       = 0x%x\n",   registers_->counter_overflow_reg);
-    fprintf(fp, "    ch1_17_high_bits_reg       = 0x%x\n",   registers_->ch1_17_high_bits_reg);
-    fprintf(fp, "    sdram_prom_reg             = 0x%x\n",   registers_->sdram_prom_reg);
-    fprintf(fp, "    xilinx_test_data_reg       = 0x%x\n",   registers_->xilinx_test_data_reg);
-    fprintf(fp, "    xilinx_control             = 0x%x\n",   registers_->xilinx_control);
+    fprintf(fp, "    control_status_reg         = 0x%x\n",   readRegister(&registers_->control_status_reg));
+    fprintf(fp, "    moduleID_reg               = 0x%x\n",   readRegister(&registers_->moduleID_reg));
+    fprintf(fp, "    irq_config_reg             = 0x%x\n",   readRegister(&registers_->irq_config_reg));
+    fprintf(fp, "    irq_control_status_reg     = 0x%x\n",   readRegister(&registers_->irq_control_status_reg));
+    fprintf(fp, "    acq_preset_reg             = 0x%x\n",   readRegister(&registers_->acq_preset_reg));
+    fprintf(fp, "    acq_count_reg              = 0x%x\n",   readRegister(&registers_->acq_count_reg));
+    fprintf(fp, "    lne_prescale_factor_reg    = 0x%x\n",   readRegister(&registers_->lne_prescale_factor_reg));
+    fprintf(fp, "    preset_group1_reg          = 0x%x\n",   readRegister(&registers_->preset_group1_reg));
+    fprintf(fp, "    preset_group2_reg          = 0x%x\n",   readRegister(&registers_->preset_group2_reg));
+    fprintf(fp, "    preset_enable_reg          = 0x%x\n",   readRegister(&registers_->preset_enable_reg));
+    fprintf(fp, "    cblt_setup_reg             = 0x%x\n",   readRegister(&registers_->cblt_setup_reg));
+    fprintf(fp, "    sdram_page_reg             = 0x%x\n",   readRegister(&registers_->sdram_page_reg));
+    fprintf(fp, "    fifo_word_count_reg        = 0x%x\n",   readRegister(&registers_->fifo_word_count_reg));
+    fprintf(fp, "    fifo_word_threshold_reg    = 0x%x\n",   readRegister(&registers_->fifo_word_threshold_reg));
+    fprintf(fp, "    hiscal_start_preset_reg    = 0x%x\n",   readRegister(&registers_->hiscal_start_preset_reg));
+    fprintf(fp, "    hiscal_start_counter_reg   = 0x%x\n",   readRegister(&registers_->hiscal_start_counter_reg));
+    fprintf(fp, "    hiscal_last_acq_count_reg  = 0x%x\n",   readRegister(&registers_->hiscal_last_acq_count_reg));
+    fprintf(fp, "    op_mode_reg                = 0x%x\n",   readRegister(&registers_->op_mode_reg));
+    fprintf(fp, "    copy_disable_reg           = 0x%x\n",   readRegister(&registers_->copy_disable_reg));
+    fprintf(fp, "    lne_channel_select_reg     = 0x%x\n",   readRegister(&registers_->lne_channel_select_reg));
+    fprintf(fp, "    preset_channel_select_reg  = 0x%x\n",   readRegister(&registers_->preset_channel_select_reg));
+    fprintf(fp, "    mux_out_channel_select_reg = 0x%x\n",   readRegister(&registers_->mux_out_channel_select_reg));
+    fprintf(fp, "    count_disable_reg          = 0x%x\n",   readRegister(&registers_->count_disable_reg));
+    fprintf(fp, "    count_clear_reg            = 0x%x\n",   readRegister(&registers_->count_clear_reg));
+    fprintf(fp, "    counter_overflow_reg       = 0x%x\n",   readRegister(&registers_->counter_overflow_reg));
+    fprintf(fp, "    ch1_17_high_bits_reg       = 0x%x\n",   readRegister(&registers_->ch1_17_high_bits_reg));
+    fprintf(fp, "    sdram_prom_reg             = 0x%x\n",   readRegister(&registers_->sdram_prom_reg));
+    fprintf(fp, "    xilinx_test_data_reg       = 0x%x\n",   readRegister(&registers_->xilinx_test_data_reg));
+    fprintf(fp, "    xilinx_control             = 0x%x\n",   readRegister(&registers_->xilinx_control));
     for (i=0; i<32; i++) fprintf(fp,
-                "    shadow_regs[%d]            = 0x%x\n",   i, registers_->shadow_regs[i]);         
+                "    shadow_regs[%d]            = 0x%x\n",   i, readRegister(&registers_->shadow_regs[i]));         
     for (i=0; i<32; i++) fprintf(fp,
-                "    counter_regs[%d]           = 0x%x\n",   i, registers_->counter_regs[i]);         
+                "    counter_regs[%d]           = 0x%x\n",   i, readRegister(&registers_->counter_regs[i]));         
   }
   // Call the base class method
   drvSIS38XX::report(fp, details);
@@ -311,7 +348,7 @@ void drvSIS3820::erase()
   
   /* Erase FIFO and counters on board */
   resetFIFO();
-  registers_->key_counter_clear = 1;
+  writeRegister(&registers_->key_counter_clear,1);
 
   return;
 }
@@ -328,9 +365,9 @@ void drvSIS3820::startMCSAcquire()
   setAcquireMode(ACQUIRE_MODE_MCS);
 
   if (channelAdvanceSource == mcaChannelAdvance_Internal) 
-    registers_->key_op_enable_reg = 1;
+    writeRegister(&registers_->key_op_enable_reg,1);
   else if (channelAdvanceSource == mcaChannelAdvance_External) 
-    registers_->key_op_arm_reg = 1;
+    writeRegister(&registers_->key_op_arm_reg,1);
 
   /* Optionally do one software next_clock. This starts the module counting without 
    * waiting for the first external next clock. */
@@ -341,18 +378,18 @@ void drvSIS3820::startMCSAcquire()
 void drvSIS3820::stopMCSAcquire()
 {
   /* Turn off hardware acquisition */
-  registers_->key_op_disable_reg = 1;
+  writeRegister(&registers_->key_op_disable_reg,1);
 }
 
 void drvSIS3820::startScaler()
 {
   setAcquireMode(ACQUIRE_MODE_SCALER);
-  registers_->key_op_enable_reg = 1;
+  writeRegister(&registers_->key_op_enable_reg,1);
 }
 
 void drvSIS3820::stopScaler()
 {
-  registers_->key_op_disable_reg = 1;
+  writeRegister(&registers_->key_op_disable_reg,1);
   resetFIFO();
 }
 
@@ -360,7 +397,7 @@ void drvSIS3820::readScalers()
 {
   int i;
   for (i=0; i<maxSignals_; i++) {
-    scalerData_[i] = registers_->counter_regs[i];
+    scalerData_[i] = readRegister(&registers_->counter_regs[i]);
   }
 }
 
@@ -368,20 +405,20 @@ void drvSIS3820::resetScaler()
 {
   /* Reset scaler */
   setAcquireMode(ACQUIRE_MODE_SCALER);
-  registers_->key_op_disable_reg = 1;
+  writeRegister(&registers_->key_op_disable_reg,1);
   resetFIFO();
-  registers_->key_counter_clear = 1;
+  writeRegister(&registers_->key_counter_clear,1);
 }
 
 
 void drvSIS3820::clearScalerPresets()
 {
-  registers_->preset_channel_select_reg &= ~SIS3820_FOUR_BIT_MASK;
-  registers_->preset_channel_select_reg &= ~(SIS3820_FOUR_BIT_MASK << 16);
-  registers_->preset_enable_reg &= ~SIS3820_PRESET_STATUS_ENABLE_GROUP1;
-  registers_->preset_enable_reg &= ~SIS3820_PRESET_STATUS_ENABLE_GROUP2;
-  registers_->preset_group2_reg = 0;
-  registers_->preset_group2_reg = 0;
+  writeRegister(&registers_->preset_channel_select_reg, readRegister(&registers_->preset_channel_select_reg) & ~SIS3820_FOUR_BIT_MASK);
+  writeRegister(&registers_->preset_channel_select_reg, readRegister(&registers_->preset_channel_select_reg) & ~(SIS3820_FOUR_BIT_MASK << 16));
+  writeRegister(&registers_->preset_enable_reg, readRegister(&registers_->preset_enable_reg) & ~SIS3820_PRESET_STATUS_ENABLE_GROUP1);
+  writeRegister(&registers_->preset_enable_reg, readRegister(&registers_->preset_enable_reg) & ~SIS3820_PRESET_STATUS_ENABLE_GROUP2);
+  writeRegister(&registers_->preset_group2_reg,0);
+  writeRegister(&registers_->preset_group2_reg,0);
 }
 
 void drvSIS3820::setScalerPresets()
@@ -402,23 +439,23 @@ void drvSIS3820::setScalerPresets()
       getIntegerParam(i, scalerPresets_, &preset);
       if (preset != 0) {
         if (i < 16) {
-          registers_->preset_group1_reg = preset;
+          writeRegister(&registers_->preset_group1_reg,preset);
           /* Enable this bank of counters for preset checking */
-          registers_->preset_enable_reg |= SIS3820_PRESET_STATUS_ENABLE_GROUP1;
+          writeRegister(&registers_->preset_enable_reg, readRegister(&registers_->preset_enable_reg) | SIS3820_PRESET_STATUS_ENABLE_GROUP1);
           /* Set the correct channel for checking against the preset value */
-          presetChannelSelectRegister = registers_->preset_channel_select_reg;
+          presetChannelSelectRegister = readRegister(&registers_->preset_channel_select_reg);
           presetChannelSelectRegister &= ~SIS3820_FOUR_BIT_MASK;
           presetChannelSelectRegister |= i;
-          registers_->preset_channel_select_reg = presetChannelSelectRegister;
+          writeRegister(&registers_->preset_channel_select_reg,presetChannelSelectRegister);
         } else {
-          registers_->preset_group2_reg = preset;
+          writeRegister(&registers_->preset_group2_reg,preset);
           /* Enable this bank of counters for preset checking */
-          registers_->preset_enable_reg |= SIS3820_PRESET_STATUS_ENABLE_GROUP2;
+          writeRegister(&registers_->preset_enable_reg, readRegister(&registers_->preset_enable_reg) | SIS3820_PRESET_STATUS_ENABLE_GROUP2);
           /* Set the correct channel for checking against the preset value */
-          presetChannelSelectRegister = registers_->preset_channel_select_reg;
+          presetChannelSelectRegister = readRegister(&registers_->preset_channel_select_reg);
           presetChannelSelectRegister &= ~(SIS3820_FOUR_BIT_MASK << 16);
           presetChannelSelectRegister |= (i << 16);
-          registers_->preset_channel_select_reg = presetChannelSelectRegister;
+          writeRegister(&registers_->preset_channel_select_reg,presetChannelSelectRegister);
         }
       }
     }
@@ -440,9 +477,9 @@ void drvSIS3820::setAcquireMode(SIS38XXAcquireMode_t acquireMode)
   getIntegerParam(SIS38XXChannel1Source_, (int*)&channel1Source);
   /* Enable or disable 50 MHz channel 1 reference pulses. */
   if (channel1Source == CHANNEL1_SOURCE_INTERNAL)
-    registers_->control_status_reg |= CTRL_REFERENCE_CH1_ENABLE;
+    writeRegister(&registers_->control_status_reg, readRegister(&registers_->control_status_reg) | CTRL_REFERENCE_CH1_ENABLE);
   else
-    registers_->control_status_reg |= CTRL_REFERENCE_CH1_DISABLE;
+    writeRegister(&registers_->control_status_reg, readRegister(&registers_->control_status_reg) | CTRL_REFERENCE_CH1_DISABLE);
 
   /* Set the interrupt control register */
   setIrqControlStatusReg();
@@ -461,30 +498,30 @@ void drvSIS3820::setAcquireMode(SIS38XXAcquireMode_t acquireMode)
       clearScalerPresets();
       
       /* Disable channel in MCS mode. We enable the first maxSignals_ inputs */
-      registers_->copy_disable_reg = 0xFFFFFFFF << maxSignals_;
+      writeRegister(&registers_->copy_disable_reg,0xFFFFFFFF << maxSignals_);
       
       /* Set the number of channels to acquire */
-      registers_->acq_preset_reg = nChans;
+      writeRegister(&registers_->acq_preset_reg,nChans);
 
       /* Set the LNE channel NOTE: This should allow other sources in the future */
-      registers_->lne_channel_select_reg = 0;
+      writeRegister(&registers_->lne_channel_select_reg,0);
 
       if (channelAdvanceSource == mcaChannelAdvance_Internal) {
         /* The SIS3820 requires the value in the LNE prescale register to be one
          * less than the actual number of incoming signals. We do this adjustment
          * here, so the user sees the actual number at the record level.
          */
-        registers_->op_mode_reg = (registers_->op_mode_reg & ~0xF0) | SIS3820_LNE_SOURCE_INTERNAL_10MHZ;
-        registers_->lne_prescale_factor_reg = 
-          (epicsUInt32) (SIS3820_10MHZ_CLOCK * dwellTime) - 1;
+        writeRegister(&registers_->op_mode_reg, (readRegister(&registers_->op_mode_reg) & ~0xF0) | SIS3820_LNE_SOURCE_INTERNAL_10MHZ);
+        writeRegister(&registers_->lne_prescale_factor_reg,
+		      (epicsUInt32) (SIS3820_10MHZ_CLOCK * dwellTime) - 1);
       }
       else if (channelAdvanceSource == mcaChannelAdvance_External) {
         /* The SIS3820 requires the value in the LNE prescale register to be one
          * less than the actual number of incoming signals. We do this adjustment
          * here, so the user sees the actual number at the record level.
          */
-        registers_->op_mode_reg = (registers_->op_mode_reg & ~0xF0) | SIS3820_LNE_SOURCE_CONTROL_SIGNAL;
-        registers_->lne_prescale_factor_reg = prescale - 1;
+        writeRegister(&registers_->op_mode_reg, (readRegister(&registers_->op_mode_reg) & ~0xF0) | SIS3820_LNE_SOURCE_CONTROL_SIGNAL);
+        writeRegister(&registers_->lne_prescale_factor_reg,prescale - 1);
       } 
       else {
         asynPrint(pasynUserSelf, ASYN_TRACE_ERROR, 
@@ -495,13 +532,13 @@ void drvSIS3820::setAcquireMode(SIS38XXAcquireMode_t acquireMode)
       
     case ACQUIRE_MODE_SCALER:
       /* Clear the preset register from MCS mode */
-      registers_->acq_preset_reg = 0;
+      writeRegister(&registers_->acq_preset_reg,0);
       
       /* Set the LNE channel */
-      registers_->lne_channel_select_reg = 0;
+      writeRegister(&registers_->lne_channel_select_reg,0);
 
       /* Disable channel in scaler mode. */
-      registers_->count_disable_reg = 0xFFFFFFFF << maxSignals_;
+      writeRegister(&registers_->count_disable_reg,0xFFFFFFFF << maxSignals_);
 
       break;
   }
@@ -551,7 +588,7 @@ void drvSIS3820::setOpModeReg()
     operationRegister |= SIS3820_HISCAL_START_SOURCE_VME;
     operationRegister |= SIS3820_OP_MODE_SCALER;
   }
-  registers_->op_mode_reg = operationRegister;
+  writeRegister(&registers_->op_mode_reg,operationRegister);
 }
 
 
@@ -562,10 +599,10 @@ void drvSIS3820::softwareChannelAdvance()
 
   // It appears to be necessary to set the LNE source to VME for this to work
   // Save the current value, clear the bits to set it to VME, restore
-  regValue = registers_->op_mode_reg;
-  registers_->op_mode_reg = regValue & ~0xF0;
-  registers_->key_lne_pulse_reg = 1;
-  registers_->op_mode_reg = regValue;
+  regValue = readRegister(&registers_->op_mode_reg);
+  writeRegister(&registers_->op_mode_reg,regValue & ~0xF0);
+  writeRegister(&registers_->key_lne_pulse_reg,1);
+  writeRegister(&registers_->op_mode_reg,regValue);
 }
 
 void drvSIS3820::setInputMode()
@@ -585,16 +622,16 @@ void drvSIS3820::setLED()
   
   getIntegerParam(SIS38XXLED_, &value);
   if (value == 0)
-    registers_->control_status_reg = CTRL_USER_LED_OFF;
+    writeRegister(&registers_->control_status_reg,CTRL_USER_LED_OFF);
   else
-    registers_->control_status_reg = CTRL_USER_LED_ON;
+    writeRegister(&registers_->control_status_reg,CTRL_USER_LED_ON);
 }
 
 int drvSIS3820::getLED()
 {
   int value;
   
-  value = registers_->control_status_reg & CTRL_USER_LED_OFF;
+  value = readRegister(&registers_->control_status_reg) & CTRL_USER_LED_OFF;
   return (value == 0) ? 0:1;
 }
 
@@ -624,7 +661,7 @@ void drvSIS3820::setMuxOut()
               driverName, functionName, firmwareVersion_);
     return;
   }
-  registers_->mux_out_channel_select_reg = value - 1;
+  writeRegister(&registers_->mux_out_channel_select_reg,value - 1);
   asynPrint(pasynUserSelf, ASYN_TRACE_FLOW, 
             "%s:%s: scalerMuxOutCommand %d\n", 
             driverName, functionName, value);
@@ -632,7 +669,7 @@ void drvSIS3820::setMuxOut()
 
 int drvSIS3820::getMuxOut()
 {
-  return registers_->mux_out_channel_select_reg + 1;
+  return readRegister(&registers_->mux_out_channel_select_reg) + 1;
 }
 
 
@@ -669,24 +706,9 @@ void drvSIS3820::setIrqControlStatusReg()
   interruptRegister |= SIS3820_IRQ_SOURCE6_CLEAR;
   interruptRegister |= SIS3820_IRQ_SOURCE7_CLEAR;
 
-  registers_->irq_control_status_reg = interruptRegister;
+  writeRegister(&registers_->irq_control_status_reg,interruptRegister);
 }
 
-
-/**********************/
-/* DMA handling       */
-/**********************/
-
-static void dmaCallbackC(void *drvPvt)
-{
-  drvSIS3820 *pSIS3820 = (drvSIS3820*)drvPvt;
-  pSIS3820->dmaCallback();
-}
-
-void drvSIS3820::dmaCallback()
-{
-  epicsEventSignal(dmaDoneEventId_);
-}
 
 
 /**********************/
@@ -695,12 +717,12 @@ void drvSIS3820::dmaCallback()
 
 void drvSIS3820::enableInterrupts()
 {
-  registers_->irq_config_reg |= SIS3820_IRQ_ENABLE;
+  writeRegister(&registers_->irq_config_reg, readRegister(&registers_->irq_config_reg) | SIS3820_IRQ_ENABLE);
 }
 
 void drvSIS3820::disableInterrupts()
 {
-  registers_->irq_config_reg &= ~SIS3820_IRQ_ENABLE;
+  writeRegister(&registers_->irq_config_reg, readRegister(&registers_->irq_config_reg) & ~SIS3820_IRQ_ENABLE);
 }
 
 
@@ -717,7 +739,7 @@ void drvSIS3820::intFunc()
   disableInterrupts();
 
   /* Test which interrupt source has triggered this interrupt. */
-  irqStatusReg_ = registers_->irq_control_status_reg;
+  irqStatusReg_ = readRegister(&registers_->irq_control_status_reg);
 
   /* Check for the FIFO threshold interrupt */
   if (irqStatusReg_ & SIS3820_IRQ_SOURCE1_FLAG)
@@ -725,7 +747,7 @@ void drvSIS3820::intFunc()
     /* Note that this is a level-sensitive interrupt, not edge sensitive, so it can't be cleared */
     /* Disable this interrupt, since it is caused by FIFO threshold, and that
      * condition is only cleared in the readFIFO routine */
-    registers_->irq_control_status_reg = SIS3820_IRQ_SOURCE1_DISABLE;
+    writeRegister(&registers_->irq_control_status_reg,SIS3820_IRQ_SOURCE1_DISABLE);
     eventType_ = EventISR1;
   }
 
@@ -733,7 +755,7 @@ void drvSIS3820::intFunc()
   else if (irqStatusReg_ & SIS3820_IRQ_SOURCE2_FLAG)
   {
     /* Reset the interrupt source */
-    registers_->irq_control_status_reg = SIS3820_IRQ_SOURCE2_CLEAR;
+    writeRegister(&registers_->irq_control_status_reg,SIS3820_IRQ_SOURCE2_CLEAR);
     // We only set acquiring_ false in scaler mode, in MCS mode we let checkMCSDone() handle this
     // otherwise we can stop reading the FIFO too soon
     if (acquireMode_ == ACQUIRE_MODE_SCALER) acquiring_ = false;
@@ -749,7 +771,7 @@ void drvSIS3820::intFunc()
      * Note that this is a level-sensitive interrupt, not edge sensitive, so it can't be cleared.
      * Instead we disable the interrupt, and re-enable it at the end of readFIFO.
      */
-    registers_->irq_control_status_reg = SIS3820_IRQ_SOURCE4_DISABLE;
+    writeRegister(&registers_->irq_control_status_reg,SIS3820_IRQ_SOURCE4_DISABLE);
     eventType_ = EventISR4;
   }
 
@@ -760,7 +782,7 @@ void drvSIS3820::intFunc()
 void drvSIS3820::resetFIFO()
 {
   epicsMutexLock(fifoLockId_);
-  registers_->key_fifo_reset_reg= 1;
+  writeRegister(&registers_->key_fifo_reset_reg,1);
   epicsMutexUnlock(fifoLockId_);
 }  
 
@@ -824,26 +846,21 @@ void drvSIS3820::readFIFOThread()
       // It does require the FIFO lock so no one resets the FIFO while it executes
       epicsMutexLock(fifoLockId_);
       unlock();
-      count = registers_->fifo_word_count_reg;
+      count = readRegister(&registers_->fifo_word_count_reg);
       if (count > fifoBufferWords_) count = fifoBufferWords_;
       epicsTimeGetCurrent(&t1);
       if (useDma_ && (count >= MIN_DMA_TRANSFERS)) {
         asynPrint(pasynUserSelf, ASYN_TRACE_FLOW, 
                   "%s:%s: doing DMA transfer, fifoBuffer=%p, fifo_base=%p, count=%d\n",
                   driverName, functionName, fifoBuffer_, fifo_base_, count);
-        status = sysDmaFromVme(dmaId_, fifoBuffer_, (int)fifo_base_, VME_AM_EXT_SUP_D64BLT, (count)*sizeof(int), 8);
+        status = epicsDmaFromVmeAndWait(dmaId_, fifoBuffer_, (int)fifo_base_, VME_AM_EXT_SUP_MBLT, (count)*sizeof(int), 8);
         if (status) {
           asynPrint(pasynUserSelf, ASYN_TRACE_ERROR, 
-                    "%s:%s: doing DMA transfer, error calling sysDmaFromVme, status=%d, buff=%p, fifo_base=%p, count=%d\n",
+                    "%s:%s: doing DMA transfer, error calling epicsDmaFromVme, status=%d, buff=%p, fifo_base=%p, count=%d\n",
                     driverName, functionName, status, fifoBuffer_, fifo_base_, count);
-        } 
-        else {
-          epicsEventWait(dmaDoneEventId_);
-          status = sysDmaStatus(dmaId_);
-          if (status)
-             asynPrint(pasynUserSelf, ASYN_TRACE_ERROR, 
-                       "%s:%s: DMA error, errno=%d, message=%s\n",
-                       driverName, functionName, errno, strerror(errno));
+         asynPrint(pasynUserSelf, ASYN_TRACE_ERROR, 
+                   "%s:%s: DMA error, errno=%d, message=%s\n",
+                   driverName, functionName, errno, strerror(errno));
         }
       } else {    
         asynPrint(pasynUserSelf, ASYN_TRACE_FLOW, 
@@ -859,7 +876,7 @@ void drvSIS3820::readFIFOThread()
 
       asynPrint(pasynUserSelf, ASYN_TRACE_FLOW, 
                 "%s:%s: read FIFO (%d) in %fs, fifo word count after=%d, fifoBuffer_=%p, fifo_base_=%p\n",
-                driverName, functionName, count, epicsTimeDiffInSeconds(&t2, &t1), registers_->fifo_word_count_reg, fifoBuffer_, fifo_base_);
+                driverName, functionName, count, epicsTimeDiffInSeconds(&t2, &t1), readRegister(&registers_->fifo_word_count_reg), fifoBuffer_, fifo_base_);
       // Release the FIFO lock, we are done accessing the FIFO
       epicsMutexUnlock(fifoLockId_);
       
@@ -892,7 +909,7 @@ void drvSIS3820::readFIFOThread()
       /* Re-enable FIFO threshold and FIFO almost full interrupts */
       /* NOTE: WE ARE NOT USING FIFO THRESHOLD INTERRUPTS FOR NOW */
       /* registers_->irq_control_status_reg = SIS3820_IRQ_SOURCE1_ENABLE; */
-      registers_->irq_control_status_reg = SIS3820_IRQ_SOURCE4_ENABLE;
+      writeRegister(&registers_->irq_control_status_reg,SIS3820_IRQ_SOURCE4_ENABLE);
 
       // Release the lock 
       unlock();

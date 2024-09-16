@@ -47,21 +47,11 @@ include $(TOP)/../../RELEASE_SITE_3.15
 
 #ASYN=$(EPICS_MODULES_TOP)/asyn/asyn-R4-18-spear1
 ASYN=$(EPICS_SITE_TOP_SPEAR)/3.15.5epics/modules_lcls/asyn/R4.31-0.1.0
-#ASYN=$(EPICS_SITE_TOP_SPEAR)/epics/modules/asyn/asyn-spear-git
 #MISCUTILS=$(EPICS_MODULES_TOP)/miscUtils/miscUtils-R0-0-0
-MISCUTILS_SPEAR=$(EPICS_SITE_TOP_SPEAR)/epics/modules/miscUtils/miscUtils-spear-git
-#MISCUTILS=$(EPICS_SITE_TOP_SPEAR)/3.15.5epics/modules_lcls/miscUtils/R2.2.4
+MISCUTILS=$(EPICS_SITE_TOP_SPEAR)/epics/modules/miscUtils/miscUtils-spear-git
 #CALCUTILS=$(EPICS_MODULES_TOP)/calcUtils/calcUtils-R0-0-0
-CALC=$(EPICS_SITE_TOP_SPEAR)/3.15.5epics/modules_lcls/calc/R3.6.1-0.1.0
-SSCAN=$(EPICS_SITE_TOP_SPEAR)/3.15.5epics/modules_lcls/sscan/R2.10.2-0.1.0
-#BUSY=$(EPICS_SITE_TOP_SPEAR)/3.15.5epics/modules_lcls/busy/R1.6.1-0.2.4
-BUSY=$(EPICS_SITE_TOP_SPEAR)/epics/modules/busy/busy-spear-git
-STD=$(EPICS_SITE_TOP_SPEAR)/3.15.5epics/modules_lcls/std/R3.2-1.0.1
 #SNCSEQ=$(EPICS_MODULES_TOP)/seq/seq-R2-0-13-spear1
-#SNCSEQ=$(EPICS_SITE_TOP_SPEAR)/epics/modules/seq/seq-spear-git
-SNCSEQ=$(EPICS_SITE_TOP_SPEAR)/3.15.5epics/modules_lcls/seq/R2.2.4-1.0
+SNCSEQ=$(EPICS_SITE_TOP_SPEAR)/epics/modules/seq/seq-spear-git
 
 #include $(TOP)/../../configure/RELEASE-master
 EPICS_BASE=$(EPICS_SITE_TOP_SPEAR)/3.15.5epics/base
-
-

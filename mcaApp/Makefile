@@ -8,7 +8,7 @@ DIRS += mcaSrc
 DIRS += CanberraSupport
 
 # Support for Canberra Ethernet acquisition devices
-DIRS += CanberraSrc
+#DIRS += CanberraSrc
 CanberraSrc_DEPEND_DIRS = CanberraSupport mcaSrc
 
 # Support for SIS and Struck VME multiscalers
@@ -16,7 +16,7 @@ DIRS += SISSrc
 SISSrc_DEPEND_DIRS = mcaSrc
 
 # Support for Rontec XFlash
-DIRS += RontecSrc
+#DIRS += RontecSrc
 RontecSrc_DEPEND_DIRS = mcaSrc
 
 DIRS := $(DIRS) $(filter-out $(DIRS), $(wildcard *db*))

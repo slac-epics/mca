@@ -10,7 +10,7 @@ include $(TOP)/configure/CONFIG
 DBDINC += mcaRecord
 
 # <name>.dbd will be created from <name>Include.dbd
-DBD += mca.dbd
+#DBD += mca.dbd
 DBD += mcaSupport.dbd
 
 #=============================

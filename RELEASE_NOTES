@@ -1,0 +1,5 @@
+# file: RELEASE_NOTES
+
+mca-Rx-x-x  M. Dunning 28-Jul-2107
+    This is mca-R7-1-spear1, built with base R3.15.5-1.0 from lcls
+    Modified mcaApp/mcaSrc/mcaRecord.c : Changed tsStampToText to epicsTimeToStrftime

@@ -37,7 +37,7 @@
  *
  *      @(#)bpf.h       7.1 (Berkeley) 5/7/91
  *
- * @(#) $Header: /tcpdump/master/libpcap/pcap/bpf.h,v 1.19.2.8 2008-09-22 20:16:01 guy Exp $ (LBL)
+ * @(#) $Header: /afs/slac/g/spear/cvsrep/epics/modules/mca/mca/mcaApp/CanberraSupport/os/WIN32/bpf.h,v 1.1.1.1 2009/12/02 04:01:46 saa Exp $ (LBL)
  */
 
 /*

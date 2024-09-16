@@ -10,8 +10,9 @@ include $(TOP)/configure/CONFIG
 #----------------------------------------------------
 # Create and install (or just install)
 # databases, templates, substitutions like this
-#DB += dbExample1.db
-
+DB += simple_mca.db
+DB += SIS38XX.template
+DB += SIS38XX_waveform.template
 #----------------------------------------------------
 # If <anyname>.db template is not named <anyname>*.template add
 # <anyname>_template = <templatename>
