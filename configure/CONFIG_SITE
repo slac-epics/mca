@@ -19,7 +19,7 @@ CHECK_RELEASE = YES
 # Set this when you only want to compile this application
 #   for a subset of the cross-compiled target architectures
 #   that Base is built for.
-#CROSS_COMPILER_TARGET_ARCHS = vxWorks-ppc32
+CROSS_COMPILER_TARGET_ARCHS = RTEMS-beatnik RTEMS-mvme3100 RTEMS-svgm
 
 # To install files into a location other than $(TOP) define
 #   INSTALL_LOCATION here.
@@ -36,10 +36,10 @@ CHECK_RELEASE = YES
 #CROSS_OPT = NO
 
 # If your system has libusb-1.0 uncomment this line
-LINUX_LIBUSB-1.0_INSTALLED = YES
+#LINUX_LIBUSB-1.0_INSTALLED = YES
 
 # The following control build of Canberra
-LINUX_NET_INSTALLED = YES
+#LINUX_NET_INSTALLED = YES
 -include $(SUPPORT)/configure/CONFIG_SITE
 
 # These allow developers to override the CONFIG_SITE variable
