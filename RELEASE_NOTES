@@ -1,0 +1,7 @@
+#
+#  Name: RELEASE_NOTES
+#
+R7.10-1.0.0:		lorelli, 09/16/2024
+    Initial import of community developed code
+    Added SLAC build system changes
+
